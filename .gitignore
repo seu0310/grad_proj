@@ -1,0 +1,12 @@
+*pyc
+*pth
+*csv
+*png
+.DS_Store
+datasets
+ensemble_model
+env
+saved_models
+installList.txt
+requirements.txt
+.git
