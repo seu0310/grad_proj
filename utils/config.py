@@ -14,7 +14,7 @@ else:
 
 
 #waterbirds
-"""
+#"""
 if mode == 'baseline':
     base_epochs     = 100
     base_batch_size = 256
@@ -35,16 +35,17 @@ elif mode == 'margin':
     K = 6
     opt_b           = 'adam'
     opt_m           = 'adam'
-"""
+#"""
 
 
 
 #celebA
+"""
 if mode == 'baseline':
     base_epochs     = 50
     base_batch_size = 512
     base_lr         = 0.01
-    weight_decay    = 1
+    weight_decay    = 0.5
     scale = 8
     std = 0.2
     K = 6
@@ -53,13 +54,14 @@ if mode == 'baseline':
 elif mode == 'margin':
     base_epochs     = 100
     base_batch_size = 128
-    base_lr         = 0.0001
+    base_lr         = 0.001
     weight_decay    = 0.0001
     scale = 8
     std = 0.2
     K = 4
     opt_b           = 'sgd'
     opt_m           = 'sgd'
+"""
 
 
 # ----------------------Paths-------------------------- #

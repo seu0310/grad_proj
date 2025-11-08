@@ -14,7 +14,7 @@ import utils.config as config
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from utils.clustering import get_margins, obtain_and_evaluate_clusters
 from utils.dataset import CelebaDataset, WaterBirds
-from utils.utils import compute_accuracy, save_state_dict
+from utils.utils import compute_accuracy, save_state_dict, demographic_parity_difference, equal_opportunity_difference, equalized_odds_difference
 import glob
 
 from models.basemodel import Network, NetworkMargin
@@ -244,6 +244,34 @@ def train(model, NUM_EPOCHS, optimizer, DEVICE, train_loader, valid_loader, test
     print("Test Avg:", best_avg)
     print("Final epoch:", final_epoch)
 
+
+    ### === 공정성 지표 계산 (margin 모델 기준) === ###
+    print("\n[공정성 지표 계산 - Margin 모델]")
+    all_preds, all_targets, all_sensitive = [], [], []
+    model.eval()
+    with torch.no_grad():
+        for _, (_, features, targets, z1, _) in enumerate(test_loader):
+            features = features.to(DEVICE)
+            if args.type == 'margin':
+                logits, _, _, _, _ = model(features, m=None, s=None)
+            else:
+                logits, _, _ = model(features)
+            preds = logits.argmax(dim=1).cpu()
+            all_preds.append(preds)
+            all_targets.append(targets)
+            all_sensitive.append(z1)
+    all_preds = torch.cat(all_preds)
+    all_targets = torch.cat(all_targets)
+    all_sensitive = torch.cat(all_sensitive)
+    dp = demographic_parity_difference(all_preds, all_sensitive)
+    eo = equal_opportunity_difference(all_targets, all_preds, all_sensitive)
+    eod = equalized_odds_difference(all_targets, all_preds, all_sensitive)
+    print(f"Demographic Parity Diff: {dp:.4f}")
+    print(f"Equal Opportunity Diff: {eo:.4f}")
+    print(f"Equalized Odds Diff: {eod:.4f}")
+    ### ===================================== ###
+
+
     return best_val
 
 
@@ -280,9 +308,10 @@ def eval_ensemble_topk(model_class, data_loader, ckpt_paths,
         m.eval()
         models.append(m)
 
-    all_logits, all_targets = [], []
+    all_logits_list, all_targets_list, all_sensitive_list = [], [], []
+
     with torch.no_grad():
-        for _, (_, features, targets, _, _) in enumerate(data_loader):
+        for _, (_, features, targets, z1, _) in enumerate(data_loader):
             features = features.to(device)
             logits_list = []
             for m in models:
@@ -291,19 +320,36 @@ def eval_ensemble_topk(model_class, data_loader, ckpt_paths,
                 else:
                     logits, _, _, _, _ = m(features, m=None, s=None)
                 logits_list.append(logits)
+
+            # 모델별 logits 평균
             avg_logits = torch.stack(logits_list).mean(dim=0)
-            all_logits.append(avg_logits.cpu())
-            all_targets.append(targets)
-    all_logits = torch.cat(all_logits)
-    all_targets = torch.cat(all_targets)
+            all_logits_list.append(avg_logits)
+            all_targets_list.append(targets)
+            all_sensitive_list.append(z1)
+
+    # === Concatenate 전체 데이터 ===
+    all_logits = torch.cat([l.cpu() for l in all_logits_list], dim=0)
+    all_targets = torch.cat(all_targets_list, dim=0)
+    all_sensitive = torch.cat(all_sensitive_list, dim=0)
     preds = all_logits.argmax(dim=1)
 
+    # 전체 / 그룹별 정확도 계산
     global_acc = (preds == all_targets).float().mean().item()
     group_ids = torch.tensor(data_loader.dataset.group_ids)
     group_accs = [(preds[group_ids == g] == all_targets[group_ids == g]).float().mean().item()
                   for g in torch.unique(group_ids)]
     worst_acc = min(group_accs)
     avg_acc = sum(group_accs) / len(group_accs)
+
+    ### === 공정성 지표 계산 (Ensemble 모델 기준) === ###
+    print("\n[공정성 지표 계산 - Ensemble 모델]")
+    dp = demographic_parity_difference(preds, all_sensitive)
+    eo = equal_opportunity_difference(all_targets, preds, all_sensitive)
+    eod = equalized_odds_difference(all_targets, preds, all_sensitive)
+    print(f"Demographic Parity Diff: {dp:.4f}")
+    print(f"Equal Opportunity Diff: {eo:.4f}")
+    print(f"Equalized Odds Diff: {eod:.4f}")
+    ### ===================================== ###
 
     print(f"Top-{topk} Ensemble Global Acc:", global_acc)
     print(f"Top-{topk} Ensemble Worst Acc:", worst_acc)
@@ -342,7 +388,7 @@ if __name__ == '__main__':
             lr = config.base_lr
             weight_decay = config.weight_decay
             if config.opt_b == 'sgd':
-                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)#, momentum=0.9)
+                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=0.9)
             else:
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
             epochs = config.base_epochs
@@ -354,7 +400,7 @@ if __name__ == '__main__':
             lr = config.base_lr
             weight_decay = config.weight_decay
             if config.opt_m == 'sgd':
-                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)#, momentum=0.9)
+                optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=0.9)
             else:
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
             train(model, config.base_epochs, optimizer, DEVICE, train_loader, valid_loader, test_loader, args)

@@ -13,6 +13,7 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
+import torch.nn as nn
 from PIL import Image
 from tqdm import tqdm
 import pandas as pd
@@ -67,13 +68,6 @@ class CelebADataset(torch.utils.data.Dataset):
 
 
 def extract_celeba_features(data_path, output_path, batch_size=32):
-    
-    torch.manual_seed(0)
-    np.random.seed(0)
-    random.seed(0)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
     celeba_dir = os.path.join(data_path, "celebA")
     img_dir = os.path.join(celeba_dir, "Img/img_align_celeba")
     attr_path = os.path.join(celeba_dir, "Anno/list_attr_celeba.txt")
@@ -83,25 +77,25 @@ def extract_celeba_features(data_path, output_path, batch_size=32):
 
 
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((224, 224)),    # ResNet 표준 크기
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
+                            std=[0.229, 0.224, 0.225]),
     ])
 
 
-    model = models.resnet18(pretrained=True)
-    feature_extractor = torch.nn.Sequential(*list(model.children())[:-1]) 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    feature_extractor.to(device)
-    feature_extractor.eval()
+    backbone = models.resnet18(pretrained=True)
+    backbone.fc = nn.Identity()  # (512-dim features)
+    backbone = backbone.to(device)
+    backbone.eval()
 
 
     for split in ['train', 'val', 'test']:
         print(f"\n🔹 Processing {split} split...")
         dataset = CelebADataset(img_dir, attr_path, partition_path, split, transform)
         dataloader = DataLoader(dataset, batch_size=batch_size,
-                                 shuffle=False, num_workers=0)
+                                 shuffle=False, num_workers=2)
 
         split_out_dir = os.path.join(output_path, split)
         os.makedirs(split_out_dir, exist_ok=True)
@@ -116,12 +110,12 @@ def extract_celeba_features(data_path, output_path, batch_size=32):
             for i, (batch_images, batch_targets, batch_biases, batch_names) in enumerate(tqdm(dataloader)):
                 batch_images = batch_images.to(device)
 
-                batch_features = feature_extractor(batch_images)
+                batch_features = backbone(batch_images)
                 batch_features = batch_features.view(batch_features.size(0), -1) # (B, 512, 1, 1) -> (B, 512)
-                batch_features = batch_features.detach().cpu().numpy().astype(np.float32)
+                batch_features = batch_features.detach().cpu().numpy()
 
-                batch_targets = batch_targets.numpy().astype(np.int64)
-                batch_biases = batch_biases.numpy().astype(np.int64)
+                batch_targets = batch_targets.numpy()
+                batch_biases = batch_biases.numpy()
 
                 np.save(os.path.join(split_out_dir, f"feats_batch_{i:05d}.npy"), batch_features)
                 np.save(os.path.join(split_out_dir, f"targets_batch_{i:05d}.npy"), batch_targets)
@@ -159,9 +153,9 @@ def merge_celeba_features(feature_root="./datasets/celeba_features"):
             target_list.append(targets)
             bias_list.append(bias)
 
-        feats_all = np.concatenate(feat_list, axis=0).astype(np.float32)
-        targets_all = np.concatenate(target_list, axis=0).astype(np.int64)
-        bias_all = np.concatenate(bias_list, axis=0).astype(np.int64)
+        feats_all = np.concatenate(feat_list, axis=0)
+        targets_all = np.concatenate(target_list, axis=0)
+        bias_all = np.concatenate(bias_list, axis=0)
 
         np.save(os.path.join(feature_root, f"{split}_feats.npy"), feats_all)
         np.save(os.path.join(feature_root, f"{split}_targets.npy"), targets_all)
