@@ -79,17 +79,17 @@ def read_data(args):
                             batch_size=batch_size,
                             shuffle=shuffle,
                             sampler=sampler,
-                            num_workers=4)
+                            num_workers=0)
 
         valid_loader = DataLoader(dataset=valid_dataset,
                             batch_size=batch_size,
                             shuffle=False,
-                            num_workers=4)
+                            num_workers=0)
 
         test_loader = DataLoader(dataset=test_dataset,
                             batch_size=batch_size,
                             shuffle=False,
-                            num_workers=4)
+                            num_workers=0)
         
         return train_loader, valid_loader, test_loader
 
@@ -101,7 +101,7 @@ def read_data(args):
         valid_loader = DataLoader(dataset=valid_dataset,
                             batch_size=batch_size,
                             shuffle=False,
-                            num_workers=4)
+                            num_workers=0)
         return valid_loader
     
     else:
@@ -112,7 +112,7 @@ def read_data(args):
         test_loader = DataLoader(dataset=test_dataset,
                             batch_size=batch_size,
                             shuffle=False,
-                            num_workers=4)
+                            num_workers=0)
         return test_loader
 
 class GeneralizedCELoss(nn.Module):
@@ -208,35 +208,38 @@ def train(model, NUM_EPOCHS, optimizer, DEVICE, train_loader, valid_loader, test
 
 
 
+            # Create seed-specific directories
+            best_model_dir = f'saved_models/seed_{args.seed}'
+            ensemble_model_dir = f'ensemble_model/seed_{args.seed}'
+            os.makedirs(best_model_dir, exist_ok=True)
+            os.makedirs(ensemble_model_dir, exist_ok=True)
+
             if best_val < overall_acc:
                 #print(f'Best model saved at epoch {epoch}')
                 final_epoch = epoch
                 best_val = overall_acc
                 best_worst = test_worst
                 best_avg = test_avg
-                path = config.margin_path if args.type=='margin' else config.basemodel_path
-                save_state_dict(model.state_dict(), os.path.join('./', path))
+                
+                original_path = config.margin_path if args.type=='margin' else config.basemodel_path
+                path = os.path.join(best_model_dir, original_path)
+                save_state_dict(model.state_dict(), path)
 
-
-
-
-            epoch_path = f'ensemble_model/{args.type}_epoch{epoch}.pt'
+            epoch_path = os.path.join(ensemble_model_dir, f'{args.type}_epoch{epoch}.pt')
             save_state_dict(model.state_dict(), epoch_path)
-
-
 
             val_acc_list.append(val_acc if isinstance(val_acc, float) else val_acc.cpu().item())
             val_worst_list.append(float(val_worst))
-            save_path_acc = f'ensemble_model/{args.type}_val_accs.npy'
-            save_path_worst = f'ensemble_model/{args.type}_val_worsts.npy'
+            save_path_acc = os.path.join(ensemble_model_dir, f'{args.type}_val_accs.npy')
+            save_path_worst = os.path.join(ensemble_model_dir, f'{args.type}_val_worsts.npy')
             np.save(save_path_acc, np.array(val_acc_list))
             np.save(save_path_worst, np.array(val_worst_list))
 
 
-            #print(f'Epoch {epoch}')
-            #print('Train worst, avg, global acc:', train_worst, train_avg, train_acc)
-            #print('Val worst, avg, global acc:', val_worst, val_avg, val_acc)
-            #print('Test worst, avg, global acc:', test_worst, test_avg, test_acc)
+            print(f'Epoch {epoch}')
+            print('Train worst, avg, global acc:', train_worst, train_avg, train_acc)
+            print('Val worst, avg, global acc:', val_worst, val_avg, val_acc)
+            print('Test worst, avg, global acc:', test_worst, test_avg, test_acc)
 
     print('Total Training Time: %.2f min' % ((time.time() - start_time)/60))
     print("Final val acc:", best_val)
@@ -358,8 +361,7 @@ def eval_ensemble_topk(model_class, data_loader, ckpt_paths,
 
 
 
-if __name__ == '__main__':
-    args = parse_args()
+def main(args):
     seed = args.seed
     
     print(seed)
@@ -437,10 +439,11 @@ if __name__ == '__main__':
 
     elif args.test_only:
         test_loader = read_data(args)
-
+        
+        ensemble_model_dir = f'ensemble_model/seed_{args.seed}'
 
         if args.type == 'baseline':
-            ckpt_paths = [f'ensemble_model/baseline_epoch{i}.pt' for i in range(config.base_epochs)]
+            ckpt_paths = [os.path.join(ensemble_model_dir, f'baseline_epoch{i}.pt') for i in range(config.base_epochs)]
             model_class = lambda: Network(
                 config.model_name, 
                 config.num_class, 
@@ -448,7 +451,7 @@ if __name__ == '__main__':
                 config.hid_dim
             )
         else:  # margin
-            ckpt_paths = [f'ensemble_model/margin_epoch{i}.pt' for i in range(config.base_epochs)]
+            ckpt_paths = [os.path.join(ensemble_model_dir, f'margin_epoch{i}.pt') for i in range(config.base_epochs)]
             model_class = lambda: NetworkMargin(
                 config.model_name, 
                 config.num_class, 
@@ -458,11 +461,10 @@ if __name__ == '__main__':
                 hid_dim=config.hid_dim
             )
 
-
-        val_accs_path = f'ensemble_model/{args.type}_val_accs.npy'
-        val_worst_path = f'ensemble_model/{args.type}_val_worsts.npy'
+        val_accs_path = os.path.join(ensemble_model_dir, f'{args.type}_val_accs.npy')
+        val_worst_path = os.path.join(ensemble_model_dir, f'{args.type}_val_worsts.npy')
         if not os.path.exists(val_accs_path) or not os.path.exists(val_worst_path):
-            raise FileNotFoundError("Need both val_accs.npy and val_worsts.npy from training.")
+            raise FileNotFoundError(f"Validation metric files not found in {ensemble_model_dir}. Need both val_accs.npy and val_worsts.npy from training.")
         val_accs = np.load(val_accs_path)
         val_worsts = np.load(val_worst_path)
 
@@ -480,3 +482,8 @@ if __name__ == '__main__':
         )
     
     print("VRAM taken: ", torch.cuda.max_memory_allocated() / 1024**2)
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    main(args)
