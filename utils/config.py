@@ -48,7 +48,7 @@ if mode == 'baseline':
     weight_decay    = 0.5
     scale = 8
     std = 0.2
-    K = 6
+    K = 4
     opt_b           = 'sgd'
     opt_m           = 'sgd'
 elif mode == 'margin':

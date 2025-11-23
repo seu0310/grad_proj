@@ -18,8 +18,8 @@ def get_args(dataset, seed, model_type, train=False, test_only=False, bias=False
 def run_experiments():
     """Main function to run the sequence of experiments."""
     # 반복할 시드 범위
-    #seeds = [1834, 3721, 2829, 3049, 5731, 5729, 2194, 4910, 5810, 942]
-    seeds = [4821, 9372, 161, 7059, 2880, 6573, 894, 2134, 7596, 3741]
+    seeds = [1834, 3721, 2829, 3049, 5731, 5729, 2194, 4910, 5810, 942, 4821, 9372, 161, 7059, 2880, 6573, 894, 2134, 7596, 3741, 2411, 5193, 4594]
+    #seeds = [4821, 9372, 161, 7059, 2880, 6573, 894, 2134, 7596, 3741]
     #seeds = [2411, 5193, 4594]
     dataset = "waterbirds"
     #dataset = "celeba"
@@ -37,9 +37,9 @@ def run_experiments():
         #baseline_test_args = get_args(dataset, seed, 'baseline', test_only=True)
         #margin_loss.main(baseline_test_args)
 
-        print(f"\n===== [Seed {seed}] Testing Margin =====")
-        margin_test_args = get_args(dataset, seed, 'margin', test_only=True)
-        margin_loss.main(margin_test_args)
+        #print(f"\n===== [Seed {seed}] Testing Margin =====")
+        #margin_test_args = get_args(dataset, seed, 'margin', test_only=True)
+        #margin_loss.main(margin_test_args)
 
 if __name__ == '__main__':
     # This guard is crucial for multiprocessing to work correctly on Windows.
